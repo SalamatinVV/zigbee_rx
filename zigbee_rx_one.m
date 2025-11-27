@@ -37,6 +37,28 @@ function pkt = zigbee_rx_one(rx, Fs, dsss_table, L, pulse, halfChipShift)
     startPreamble = peakIdx - refLen + 1;
     startPreamble = max(startPreamble, 1);
 
+    % --- Грубая оценка частоты и фазы по преамбуле ---
+    preambleEnd = min(startPreamble + refLen - 1, length(rx));
+    rxPreambleSeg = rx(startPreamble:preambleEnd);
+    refSeg = refPreamble(1:length(rxPreambleSeg));
+
+    % Оценка частотного сдвига по наклону фазы произведения rx и эталона.
+    phDiff = unwrap(angle(rxPreambleSeg .* conj(refSeg)));
+    if numel(phDiff) > 1
+        freqOffset = mean(diff(phDiff)) * Fs / (2*pi);
+    else
+        freqOffset = 0;
+    end
+
+    % Убираем частотный сдвиг на всём сигнале после преамбулы.
+    n = 0:(length(rx) - startPreamble);
+    rx(startPreamble:end) = rx(startPreamble:end) .* exp(-1j*2*pi*freqOffset*n/Fs).';
+
+    % Оценка и компенсация остаточной фазы на преамбуле.
+    rxPreambleFreqCorr = rxPreambleSeg .* exp(-1j*2*pi*freqOffset*(0:length(rxPreambleSeg)-1)/Fs).';
+    phaseOffset = angle(sum(rxPreambleFreqCorr .* conj(refSeg)));
+    rx(startPreamble:end) = rx(startPreamble:end) .* exp(-1j*phaseOffset);
+
     rx_sync = rx(startPreamble:end);
 
     %% --- DEMOD OQPSK → ЧИПЫ ---
